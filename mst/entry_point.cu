@@ -12,7 +12,6 @@
 
 #include "opt.cu"
 #include "impl2.cu"
-#include "impl1.cu"
 
 enum class ProcessingType {Push, Neighbor, Own, Unknown};
 enum SyncMode {InCore, OutOfCore};
@@ -111,7 +110,6 @@ int main( int argc, char** argv )
 			else if ( !strcmp(argv[iii], "--sync") && iii != argc-1 ) {
                 if ( !strcmp(argv[iii+1], "incore") ){
 			        syncMethod = InCore;
-                    outcore = 0;
                 }
                 else if ( !strcmp(argv[iii+1], "outcore") ){
     			    syncMethod = OutOfCore;

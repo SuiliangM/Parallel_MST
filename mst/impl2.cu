@@ -67,7 +67,7 @@ __global__ void cudaInitIntArray(int *a, int len, int val){
 
 struct vertex{
   unsigned int start;
-  unsigned int length;
+  unsigned int len;
 };
 
 /****** END UTIL METHODS ******/
@@ -76,13 +76,16 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     setTime();
     
     // get edge list
-    std::sort(edges.begin(), edges.end(), edgeSrcComparator);
-    edge *edges = *edgesPtr.data();
+    std::vector<edge> edgeVector = *edgesPtr;
+    std::sort(edgeVector.begin(), edgeVector.end(), edgeSrcComparator);
+    edge *edges = edgeVector.data();
+    int elen = edgeVector.size();
 
     // get vertex list
     vertex *vertices;
-    int numVertices = getNumVertices(edges);
-    cudaMalloc((void**)&vertices, numVertices * sizeof(vertex));
+    int numVertices = getNumVertices(edgeVector);
+    int vlen = numVertices;
+    vertices = (vertex*)malloc(numVertices * sizeof(vertex));
     int prevSrc = -1;
     int curVertex, start, len = 0;
     for(edge e : *edgesPtr){
@@ -97,11 +100,19 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
         vertices[curVertex].len = len;
         
         start += len;
-        curVertex, len = 0;
+        curVertex++;
+        len = 0;
       }
     }
     vertices[curVertex].start = start;
     vertices[curVertex].len = len;
+
+    for(int i = 0; i < vlen; i++){
+        printf("v%d: start = %d len = %d %d\n", i, vertices[i].start, vertices[i].len, vlen);
+    }
+    for(int i = 0; i < elen; i++){
+        printf("e%d: src = %d dest = %d weight = %d\n", i, edges[i].src, edges[i].dest, edges[i].weight);
+    }
 
     cudaDeviceProp props; cudaGetDeviceProperties(&props, 0);
     printf("The total computation kernel time on GPU %s is %f milli-seconds\n", props.name, getTime());

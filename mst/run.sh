@@ -1,11 +1,10 @@
 BSIZE=256
 BCOUNT=8
-INPUT="../test_graphs/msdoor.txt"
+INPUT="../data/graph_1.txt"
 OUTPUT="output.txt"
 METHOD="tpe"
 USEMEM="no"
-SYNC="incore"
 
-ARGS="--input $INPUT --bsize $BSIZE --bcount $BCOUNT --output $OUTPUT --method $METHOD --usemem $USEMEM --sync $SYNC"
+ARGS="--input $INPUT --bsize $BSIZE --bcount $BCOUNT --output $OUTPUT --method $METHOD --usemem $USEMEM"
 
 ./sssp $ARGS
