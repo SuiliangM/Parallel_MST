@@ -77,6 +77,9 @@ struct vertex{
   int start;
   unsigned int len;
   int successor;
+  int newSuccessor;
+  int index;
+  int min;
 };
 
 /****** END UTIL METHODS ******/
@@ -96,7 +99,7 @@ bool done(vertex *v, int vlen){
 }
 
 __global__ void
-findMins(vertex *v, edge *e, int *inMst, int vlen, int elen){
+findMins(vertex *v, edge *e, int *inMst, int vlen, int elen, int *minOut, int *minV){
     int totalThreads = gridDim.x * blockDim.x;
     int totalWarps = (totalThreads % 32 == 0) ?  totalThreads / 32 : totalThreads / 32 + 1;
     int threadId = blockDim.x * blockIdx.x + threadIdx.x;
@@ -124,11 +127,36 @@ findMins(vertex *v, edge *e, int *inMst, int vlen, int elen){
             //minIndex = ((tmpMin <= w) * minIndex) + (((w < tmpMin) && (j < minIndex)) * j);
             //printf("min: %d\tnew: %d\t%d\n", tmpMin, w, (int)(((w == tmpMin) && (dest < minv)) || (w < tmpMin)));
         }
-        inMst[minIndex] = 1;
+        atomicMin(&minOut[v[i].successor], min);
+        atomicMin(&minV[v[i].successor], i);
+        //hjinMst[minIndex] = 1;
+        v[i].index = minIndex;
+        v[i].min = min;
         //printf("min index: %d", minIndex);
         e[minIndex].weight = INT_MAX;
-        v[i].successor = ((minv != INT_MAX) * minv) + ((minv == INT_MAX) * cur.successor);
-        printf("cur: %d, suc: %d\n", i, v[i].successor);
+        v[i].newSuccessor = ((minv != INT_MAX) * minv) + ((minv == INT_MAX) * cur.successor);
+        //printf("cur: %d, suc: %d\n", i, v[i].successor);
+    }
+}
+
+__global__ void
+fix2Successors(vertex *v, int vlen, int *inMst, int *minOut, int *minV){
+    int totalThreads = gridDim.x * blockDim.x;
+    int totalWarps = (totalThreads % 32 == 0) ?  totalThreads / 32 : totalThreads / 32 + 1;
+    int threadId = blockDim.x * blockIdx.x + threadIdx.x;
+    int warpId = threadId / 32;
+    int laneId = threadId % 32;
+    int load = (vlen % totalWarps == 0) ? vlen / totalWarps : vlen / totalWarps + 1;
+    int beg = load * warpId;
+    int end = (vlen < beg + load) ? vlen : beg + load;
+    beg = beg + laneId;
+
+    for(int i = beg; i < end; i += 32){
+        int s = v[i].successor;
+        bool changeSuccessor = (v[i].min < minOut[s]) || ((v[i].min == minOut[s]) && (i <= minV[s]));
+        v[i].successor = ((int)changeSuccessor * v[i].newSuccessor) + ((!(int)changeSuccessor) * v[i].successor);
+        inMst[v[i].index] = (int)changeSuccessor;
+        //printf("cur: %d, suc: %d\n", i, v[i].successor);
     }
 }
 
@@ -166,7 +194,7 @@ fixSuccessors(vertex *v, int vlen){
     for(int i = beg; i < end; i += 32){
         vertex cur = v[i];
         bool shouldChange = (v[cur.successor].successor == i) && (i < cur.successor);
-        printf("me: %d, suc: %d, sucsuc: %d\n", i, cur.successor, v[cur.successor].successor);
+        //printf("me: %d, suc: %d, sucsuc: %d\n", i, cur.successor, v[cur.successor].successor);
         v[i].successor = ((int)shouldChange * i) + (((int)!shouldChange) * cur.successor);
         //printf("cur: %d, suc: %d\n", i, cur.successor);
     }
@@ -188,6 +216,7 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     for(int i = 0; i < vlen; i++){
         vertices[i].start = INT_MAX;
         vertices[i].successor = i;
+        vertices[i].newSuccessor = i;
     }
     int prevSrc = -1;
     int curVertex = 0;
@@ -235,18 +264,28 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     cudaMalloc((void**)&v, sizeof(vertex) * vlen);
     cudaMemcpy(v, vertices, vlen * sizeof(vertex), cudaMemcpyHostToDevice);
 
+    int *minOut;
+    cudaMalloc((void**)&minOut, sizeof(int) * vlen);
+    cudaInitIntArray<<<blockNum, blockSize>>>(minOut, vlen, INT_MAX);
+
+    int *minV;
+    cudaMalloc((void**)&minV, sizeof(int) * vlen);
+    cudaInitIntArray<<<blockNum, blockSize>>>(minV, vlen, INT_MAX);
+
+
     int stop = 0;
     while(!done(v, vlen)){
-        findMins<<<blockSize, blockNum>>>(v, e, inMst, vlen, elen);
+        findMins<<<blockSize, blockNum>>>(v, e, inMst, vlen, elen, minOut, minV);
 
         /*for(int i = 0; i < elen; i++){
             printf("HERE %d:\t%d\n", i, readCudaInt(&inMst[i]));
         }*/
-        for(int i = 0; i < vlen; i++){
+        /*for(int i = 0; i < vlen; i++){
             vertex tmp;
             cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
             printf("HERE %d:\t%d\n", i, tmp.successor);
-        }
+        }*/
+        fix2Successors<<<blockSize, blockNum>>>(v, vlen, inMst, minOut, minV);
         fixSuccessors<<<blockSize, blockNum>>>(v, vlen);
         cudaDeviceSynchronize();
         setSuccessors<<<blockSize, blockNum>>>(v, vlen);
@@ -268,6 +307,8 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
                 printf("IN MST: %d\t%d\n", tmp.src, tmp.dest);
             }
         }
+
+        cudaInitIntArray<<<blockNum, blockSize>>>(minOut, vlen, INT_MAX);
     }
 
     cudaDeviceProp props; cudaGetDeviceProperties(&props, 0);
