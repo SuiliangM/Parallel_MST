@@ -84,6 +84,9 @@ struct vertex{
 
 /****** END UTIL METHODS ******/
 
+/*
+ * checks if we are done by seeing if all vertices have the same representative
+ */
 bool done(vertex *v, int vlen){
     vertex tmp;
     cudaMemcpy(&tmp, v, sizeof(vertex), cudaMemcpyDeviceToHost);
@@ -98,6 +101,9 @@ bool done(vertex *v, int vlen){
     return true;
 }
 
+/*
+ * find the minimum outgoing edge for each vertex
+ */
 __global__ void
 findMins(vertex *v, edge *e, int *inMst, int vlen, int elen, int *minOut, int *minV){
     int totalThreads = gridDim.x * blockDim.x;
@@ -139,6 +145,11 @@ findMins(vertex *v, edge *e, int *inMst, int vlen, int elen, int *minOut, int *m
     }
 }
 
+/*
+ * this kernel accounts for the issue where a component attempts to select
+ * multiple new edges in one step. This is fixed by only choosing the lowest outgoing
+ * edge from that component.
+ */
 __global__ void
 fix2Successors(vertex *v, int vlen, int *inMst, int *minOut, int *minV){
     int totalThreads = gridDim.x * blockDim.x;
@@ -160,6 +171,9 @@ fix2Successors(vertex *v, int vlen, int *inMst, int *minOut, int *minV){
     }
 }
 
+/*
+ * this kernel propogates the representative vertex throughout a component
+ */
 __global__ void
 setSuccessors(vertex *v, int vlen){
     int totalThreads = gridDim.x * blockDim.x;
@@ -179,6 +193,10 @@ setSuccessors(vertex *v, int vlen){
     }
 }
 
+/*
+ * this kernel handles loops where two vertices a and b choose each other as the lowest edge.
+ * to fix this, the edge from the vertex with the lower number to the higher number is removed.
+ */
 __global__ void
 fixSuccessors(vertex *v, int vlen){
     int totalThreads = gridDim.x * blockDim.x;
@@ -289,11 +307,11 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
         fixSuccessors<<<blockSize, blockNum>>>(v, vlen);
         cudaDeviceSynchronize();
         setSuccessors<<<blockSize, blockNum>>>(v, vlen);
-        for(int i = 0; i < vlen; i++){
+        /*for(int i = 0; i < vlen; i++){
             vertex tmp;
             cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
             printf("HERE %d:\t%d\n", i, tmp.successor);
-        }
+        }*/
 
         //if(stop >= 2){
         if(0){
@@ -301,12 +319,12 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
         }
         stop++;
 
-        for(int i = 0; i < elen; i++){
+        /*for(int i = 0; i < elen; i++){
             if(readCudaInt(&inMst[i]) == 1){
                 edge tmp = edges[i];
                 printf("IN MST: %d\t%d\n", tmp.src, tmp.dest);
             }
-        }
+        }*/
 
         cudaInitIntArray<<<blockNum, blockSize>>>(minOut, vlen, INT_MAX);
     }
