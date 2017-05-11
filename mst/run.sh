@@ -1,6 +1,6 @@
 BSIZE=256
 BCOUNT=8
-INPUT="../data/g3.txt"
+INPUT="../data/g4.txt"
 OUTPUT="output.txt"
 METHOD="tpe"
 USEMEM="no"

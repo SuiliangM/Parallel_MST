@@ -256,7 +256,8 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
             printf("HERE %d:\t%d\n", i, tmp.successor);
         }
 
-        if(stop >= 2){
+        //if(stop >= 2){
+        if(0){
             break;
         }
         stop++;
