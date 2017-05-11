@@ -87,8 +87,24 @@ struct vertex{
 /*
  * checks if we are done by seeing if all vertices have the same representative
  */
-bool done(vertex *v, int vlen){
+bool done(vertex *v, int vlen, int *prevRep){
     vertex tmp;
+    bool same = true;
+    for(int i = 0; i < vlen; i++){
+        cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
+        if(tmp.successor != prevRep[i]){
+            same = false;
+        }
+    }
+    if(same){
+        return true;
+    }
+
+    for(int i = 0; i < vlen; i++){
+        cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
+        prevRep[i] = tmp.successor;
+    }
+
     cudaMemcpy(&tmp, v, sizeof(vertex), cudaMemcpyDeviceToHost);
     int successor = tmp.successor;
     for(int i = 1; i < vlen; i++){
@@ -290,9 +306,13 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     cudaMalloc((void**)&minV, sizeof(int) * vlen);
     cudaInitIntArray<<<blockNum, blockSize>>>(minV, vlen, INT_MAX);
 
+    int *prevRep = (int*)malloc(sizeof(int) * vlen);
+    for(int i = 0; i < vlen; i++){
+        prevRep[i] = -1;
+    }
 
     int stop = 0;
-    while(!done(v, vlen)){
+    while(!done(v, vlen, prevRep)){
         findMins<<<blockSize, blockNum>>>(v, e, inMst, vlen, elen, minOut, minV);
 
         /*for(int i = 0; i < elen; i++){
