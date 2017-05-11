@@ -5,6 +5,7 @@ Parallelized version of MST
 - go into the `mst` directory
 - run the command `make`
 - change the value of the INPUT variable in `run.sh` to the path where the graph file is located
+- run the command `run.sh`
 
 ## Notes
 - if graph has edge a->b, there should also be b->a
