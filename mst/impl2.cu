@@ -263,12 +263,12 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     vertices[curVertex].start = start;
     vertices[curVertex].len = len;
 
-    for(int i = 0; i < vlen; i++){
+    /*for(int i = 0; i < vlen; i++){
         printf("v%d: start = %d len = %d %d\n", i, vertices[i].start, vertices[i].len, vlen);
     }
     for(int i = 0; i < elen; i++){
         printf("e%d: src = %d dest = %d weight = %d\n", i, edges[i].src, edges[i].dest, edges[i].weight);
-    }
+    }*/
 
     int *inMst;
     cudaMalloc((void**)&inMst, sizeof(int) * elen);
@@ -319,12 +319,14 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
         }
         stop++;
 
-        /*for(int i = 0; i < elen; i++){
+        FILE *f = fopen("output.txt", "w");
+        for(int i = 0; i < elen; i++){
             if(readCudaInt(&inMst[i]) == 1){
                 edge tmp = edges[i];
-                printf("IN MST: %d\t%d\n", tmp.src, tmp.dest);
+                fprintf(f, "%d\t%d\n", tmp.src, tmp.dest);
             }
-        }*/
+        }
+        fclose(f);
 
         cudaInitIntArray<<<blockNum, blockSize>>>(minOut, vlen, INT_MAX);
     }
