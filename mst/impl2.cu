@@ -111,14 +111,24 @@ findMins(vertex *v, edge *e, int *inMst, int vlen, int elen){
         vertex cur = v[i];
         int min = INT_MAX;
         int minIndex = elen;
+        int minv = INT_MAX;
         for(int j = cur.start; j < (cur.start + cur.len); j++){
             int w = e[j].weight;
-            cur.successor = ((min <= w) * cur.successor) + ((w < min) * e[j].dest);
-            min = ((min <= w) * min) + ((w < min) * w);
-            minIndex = ((min <= w) * minIndex) + ((w < min) * j);
+            int tmpMin = min; int tmpInd = minIndex;
+            int dest = e[j].dest;
+            min = ( ((min < w) || ((min == w) && (minv < dest))) * min) + ( (((w == min) && (dest < minv)) || (w < min)) * w);
+            minIndex = ( ((tmpMin < w) || ((tmpMin == w) && (minv < dest))) * minIndex) + ( (((w == tmpMin) && (dest < minv)) || (w < tmpMin)) * j);
+            minv = ( ((tmpMin < w) || ((tmpMin == w) && (minv < dest))) * minv) + ( (((w == tmpMin) && (dest < minv)) || (w < tmpMin)) * dest);
+            //printf("minv: %d, cursuc: %d\n", minv, cur.successor);
+
+            //minIndex = ((tmpMin <= w) * minIndex) + (((w < tmpMin) && (j < minIndex)) * j);
+            //printf("min: %d\tnew: %d\t%d\n", tmpMin, w, (int)(((w == tmpMin) && (dest < minv)) || (w < tmpMin)));
         }
         inMst[minIndex] = 1;
+        //printf("min index: %d", minIndex);
         e[minIndex].weight = INT_MAX;
+        v[i].successor = ((minv != INT_MAX) * minv) + ((minv == INT_MAX) * cur.successor);
+        printf("cur: %d, suc: %d\n", i, v[i].successor);
     }
 }
 
@@ -135,10 +145,30 @@ setSuccessors(vertex *v, int vlen){
     beg = beg + laneId;
 
     for(int i = beg; i < end; i += 32){
-        vertex cur = v[i];
-        while(v[cur.successor].successor != cur.successor){
-            cur.successor = v[cur.successor].successor;
+        while(v[v[i].successor].successor != v[i].successor){
+            v[i].successor = v[v[i].successor].successor;
         }
+    }
+}
+
+__global__ void
+fixSuccessors(vertex *v, int vlen){
+    int totalThreads = gridDim.x * blockDim.x;
+    int totalWarps = (totalThreads % 32 == 0) ?  totalThreads / 32 : totalThreads / 32 + 1;
+    int threadId = blockDim.x * blockIdx.x + threadIdx.x;
+    int warpId = threadId / 32;
+    int laneId = threadId % 32;
+    int load = (vlen % totalWarps == 0) ? vlen / totalWarps : vlen / totalWarps + 1;
+    int beg = load * warpId;
+    int end = (vlen < beg + load) ? vlen : beg + load;
+    beg = beg + laneId;
+
+    for(int i = beg; i < end; i += 32){
+        vertex cur = v[i];
+        bool shouldChange = (v[cur.successor].successor == i) && (i < cur.successor);
+        printf("me: %d, suc: %d, sucsuc: %d\n", i, cur.successor, v[cur.successor].successor);
+        v[i].successor = ((int)shouldChange * i) + (((int)!shouldChange) * cur.successor);
+        //printf("cur: %d, suc: %d\n", i, cur.successor);
     }
 }
 
@@ -163,7 +193,8 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     int curVertex = 0;
     int start = 0;
     int len = 0;
-    for(edge e : *edgesPtr){
+    for(int i = 0; i < edgeVector.size(); i++){
+        edge e = edgeVector[i];
       if(prevSrc == -1){
         curVertex = e.src;
         prevSrc = e.src;
@@ -171,6 +202,7 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
 
       if(prevSrc != e.src){
         vertices[curVertex].start = start;
+        //printf("cur: %d, start: %d", curVertex, vertices[curVertex].start);
         vertices[curVertex].len = len;
         
         start += len;
@@ -203,15 +235,37 @@ void mst(std::vector<edge> * edgesPtr, int blockSize, int blockNum){
     cudaMalloc((void**)&v, sizeof(vertex) * vlen);
     cudaMemcpy(v, vertices, vlen * sizeof(vertex), cudaMemcpyHostToDevice);
 
+    int stop = 0;
     while(!done(v, vlen)){
         findMins<<<blockSize, blockNum>>>(v, e, inMst, vlen, elen);
-        setSuccessors<<<blockSize, blockNum>>>(v, vlen);
-    }
 
-    for(int i = 0; i < elen; i++){
-        if(readCudaInt(&inMst[i]) == 1){
-            edge tmp = edges[i];
-            printf("IN MST: %d\t%d\n", tmp.src, tmp.dest);
+        /*for(int i = 0; i < elen; i++){
+            printf("HERE %d:\t%d\n", i, readCudaInt(&inMst[i]));
+        }*/
+        for(int i = 0; i < vlen; i++){
+            vertex tmp;
+            cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
+            printf("HERE %d:\t%d\n", i, tmp.successor);
+        }
+        fixSuccessors<<<blockSize, blockNum>>>(v, vlen);
+        cudaDeviceSynchronize();
+        setSuccessors<<<blockSize, blockNum>>>(v, vlen);
+        for(int i = 0; i < vlen; i++){
+            vertex tmp;
+            cudaMemcpy(&tmp, &v[i], sizeof(vertex), cudaMemcpyDeviceToHost);
+            printf("HERE %d:\t%d\n", i, tmp.successor);
+        }
+
+        if(stop >= 2){
+            break;
+        }
+        stop++;
+
+        for(int i = 0; i < elen; i++){
+            if(readCudaInt(&inMst[i]) == 1){
+                edge tmp = edges[i];
+                printf("IN MST: %d\t%d\n", tmp.src, tmp.dest);
+            }
         }
     }
 
